@@ -1,6 +1,8 @@
 import streamlit as st
 import PyPDF2
 import re
+import pytesseract
+from pdf2image import convert_from_bytes
 
 st.set_page_config(
     page_title="AI Document Review Assistant",
@@ -9,6 +11,7 @@ st.set_page_config(
 )
 
 st.title("📄 AI Document Review Assistant")
+
 st.write(
     "A prototype for supporting the first review of documents. "
     "The tool highlights information that may need further review."
@@ -25,31 +28,65 @@ if uploaded_file is not None:
 
     st.success(f"Document uploaded: {uploaded_file.name}")
 
-    # Read PDF
+    pdf_bytes = uploaded_file.getvalue()
+
+    # First try normal PDF text extraction
     reader = PyPDF2.PdfReader(uploaded_file)
 
     text = ""
 
     for page in reader.pages:
         page_text = page.extract_text()
+
         if page_text:
             text += page_text + "\n"
 
-    st.subheader("Document information")
-
+    # If no text was found, use OCR
     if not text.strip():
-        st.warning(
-            "No readable text was found in this PDF. "
-            "The document may require OCR."
+
+        st.info(
+            "No selectable text was found. "
+            "Trying OCR to read the document..."
         )
+
+        try:
+            images = convert_from_bytes(pdf_bytes)
+
+            ocr_text = ""
+
+            for image in images:
+                ocr_text += pytesseract.image_to_string(image) + "\n"
+
+            text = ocr_text
+
+        except Exception as e:
+
+            st.error(
+                "OCR could not be completed."
+            )
+
+            st.stop()
+
+    # Check if OCR/text extraction produced anything
+    if not text.strip():
+
+        st.warning(
+            "No readable text could be extracted from this document."
+        )
+
         st.stop()
 
-    # Basic checks
+    st.subheader("Document information")
+
     checks = []
 
     # Name
     name_found = bool(
-        re.search(r"\b(name|namn)\b", text, re.IGNORECASE)
+        re.search(
+            r"\b(name|namn)\b",
+            text,
+            re.IGNORECASE
+        )
     )
 
     checks.append(
@@ -69,7 +106,7 @@ if uploaded_file is not None:
         ("Institution", institution_found)
     )
 
-    # Date / Year
+    # Year
     date_found = bool(
         re.search(
             r"\b(19|20)\d{2}\b",
@@ -81,7 +118,7 @@ if uploaded_file is not None:
         ("Year / Date", date_found)
     )
 
-    # Course
+    # Course / Subject
     course_found = bool(
         re.search(
             r"\b(course|kurs|subject|ämne)\b",
